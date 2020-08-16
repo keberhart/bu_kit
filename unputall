@@ -10,11 +10,11 @@ if [ $# -eq 0 ]; then
     echo ""
     echo "  Read the manifest, un-backup the oginals"
     echo ""
-    echo "      usage: unputall fbfe# manifest"
+    echo "      usage: unputall TARGET_HOST  manifest"
     echo ""
     echo "  Where manifest is a text file listing filenames and destinations."
     echo "  for example:"
-    echo "  metp02_prepass.prc,/home/gsa/leot/database/procedures/ "
+    echo "  some_old_file.txt,/home/is/where/I/sleep/ "
     echo ""
     exit
 fi
@@ -35,8 +35,7 @@ run_unput()
 target_check
 
 # first we will validate our inputs a little bit
-fbfe_list="fbfe1fbfe2fbfe3fbfe4fbfe5fbfe6fbfe7fbfe8fbfe9"
-[[ "$fbfe_list" != *"$1"* ]] && echo "Bad input $1" && exit 1
+[[ "$target_list" != *"$1"* ]] && echo "Bad input $1" && exit 1
 [[  $(expr length $1) < 5 ]] && echo "Bad input $1" && exit 1
 target_host=$1
 
