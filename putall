@@ -1,0 +1,150 @@
+#!/bin/bash
+#
+#   A tool to backup and then put a list of files into their destination
+#   folder. Preshared keys must be enabled for this to work well.
+#
+#   FCDAS - Kyle Eberhart - 14MAY20
+#           Kyle Eberhart - 14AUG20 - Added the ability to create a manifest
+#               from a full path tar file. If you have a tar without paths, you
+#               will be prompted to fill it. You should be able to have a
+#               manifest in the folder with all the files and then tar that as
+#               well.
+#
+#-----------------------------------------------------------------------------
+if [ $# -eq 0 ]; then
+    echo ""
+    echo "  Read the manifest, backup the originals and then replace from"
+    echo "  the list."
+    echo ""
+    echo "      usage: putall fbfe# manifest"
+    echo ""
+    echo "  Where manifest is a text file listing filenames and destinations."
+    echo "  for example:"
+    echo "  random.text.file,/in/a/special/place/ "
+    echo ""
+    exit
+fi
+
+target_check ()
+{
+    # Read in the ~/.ssh/known_hosts file to verify destinations from
+    target_list=""
+    while IFS=" " read -r value1 remainder; do
+        if [[ "$value1" != *" "* ]]; then
+            target_list=$target_list$value1
+        fi
+    done < "$HOME/.ssh/known_hosts"
+}
+
+manifest_from_tar ()
+{
+    # read in the file from the command line and hopefully prcess it
+    [[ -z $2 ]] && echo "No manifest or tar file supplied!" && exit 1
+    manifest=$(realpath $2)
+
+    # is this a .tar file?
+    if { tar tf "$manifest";} > /dev/null 2>&1; then
+        # it is a tar file. Does it contain a manifest?
+        tarout="$(tar -tf "$manifest" 2>/dev/null;)"
+        if [[ "$tarout" == "manifest" ]]; then
+            # there is a manifest in the tar. Dump the file to the local folder
+            # and check things over.
+            tarout="$(tar -xf "$manifest" 2>/dev/null;)"
+            echo " There was a manifest in the tar file. The file has been extracted"
+            echo " but we are exiting so you can check things over manually prior to"
+            echo " running;"
+            echo ""
+            echo "      putall $1 manifest"
+            echo "" && exit 1
+        else
+            # no manifest in there, we have to try and build one.
+            newfile=""
+            nopath=0
+            here=$(pwd)
+            while IFS= read line || [ -n "$line" ]; do
+                file="$(basename -- "$line")"
+                path="$(dirname -- "$line")"
+                if [ "$path" == "." ]; then
+                    nopath=1
+                    path=""
+                fi
+                farpath=$path
+                workingpath=$here$path
+                workingfile=$workingpath$"/"$file
+                newline=$(printf "%s,%s" "$workingfile" "$path")
+                newfile="$newfile""$newline"$'\n'
+            done < <(printf "%s\n" "$tarout")
+            echo "$newfile" > "$here/manifest"
+            manifest="$here/manifest"
+            if [ "$nopath" == "1" ]; then
+                echo "  Exiting so you can add paths to the manifest and then run;"
+                echo ""
+                echo "          putall $1 manifest"
+                echo "" && exit 1
+            fi
+            echo "  It looks like there are paths in the tarball. Untarring..."
+            echo ""
+            tarout="$(tar -xf "$(realpath $2)" 2>/dev/null;)"
+        fi
+    fi
+}
+
+run_put ()
+{
+# first we will validate our input host a little bit
+target_check
+[[ "$target_list" != *"$1"* ]] && echo "        $1 is not a known host!" && exit 1
+target_host=$1
+
+manifest_from_tar $1 $2
+
+[[ ! -f $manifest ]] && echo "There is no manifest file by that name!" && exit 1
+# so the manifest file exists, loop over it and work
+while IFS= read -u10 -r line
+do
+    # skip empty lines
+    [[ -z "${line// }" ]] && continue
+    # skip comments
+    [[ "$line" == *"#"* ]] && continue
+    # assume its a good line I guess....
+    # split the line and ingest it
+    file=${line%,*}
+    path=${line##*,}
+    [[ ! -f $file ]] && echo "The file, $file, is missing from the start folder" && continue
+    # figure out if we can back it up on the distant end
+    [[ ${path: -1} != '/' ]] && path="${path}/"
+    target_path="${path}""$(basename -- "${file}")"
+    output=$(/usr/bin/ssh -q $target_host [[ ! -f $target_path ]] && echo "nope")
+    if [[ ${output} == "nope" ]]; then
+       echo "The file, $target_path, isn't on the target to back up."
+    else
+        echo "backing up $target_path"
+        ssh_cmd=$(/usr/bin/ssh -q $target_host $HOME/bin/bu $target_path)
+    fi
+    # Now copy our new file over to the distant end
+    scp_dest="${target_host}:${target_path}"
+    scp_cmd=$(/usr/bin/scp -q $file ${scp_dest})
+    echo "Completed transfer of: $scp_dest"
+
+done 10< $manifest
+}
+
+prompt_input ()
+{
+echo ""
+echo ""
+echo "      You are asking to install files on:"
+echo ""
+echo "                  $1"
+echo ""
+while true; do
+    read -p "       Do you want to continue? y/n: " yn
+    case $yn in
+        [Yy]* ) echo ""; run_put $1 $2; break;;
+        [Nn]* ) exit;;
+        * ) echo "      Please answer yes or no:";;
+    esac
+done
+}
+
+prompt_input $1 $2

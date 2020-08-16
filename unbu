@@ -1,0 +1,40 @@
+#!/bin/bash
+#
+#   A tool to un-backup the last working backup of a file.
+#
+#   FCDAS - Kyle Eberhart - 14MAY20
+#
+#-----------------------------------------------------------------------------
+files=( $@ )
+if [ $# -eq 0 ]; then
+    echo ""
+    echo "  Restore the most recently backed up version of the given file."
+    echo ""
+    echo "      usage: unbu filename"
+    echo ""
+    exit
+fi
+
+bu_dir="$HOME/backups/working_backups"
+
+for file in "${files[@]}"; do
+    # read our filename and path
+    source_full_path=$(realpath $file)
+    path_without_file=${source_full_path%/*}
+    # check for the correct bu directory
+    [ ! -d "$bu_dir" ] && echo "There is not a backup directory there, nothing to do!" && exit 1
+    work_dir=$bu_dir$path_without_file
+    [ ! -d "$work_dir" ] && echo "There is not a backup directory there, nothing to do!" && exit 1
+    # figure out our filename and make the new name we will copy from
+    file_name=${source_full_path##*/}
+    new_name="${file_name}.1"
+    # where are we putting the file
+    storage_full_path="${work_dir}/${new_name}"
+    # copy the file if we can, else increment and then copy
+    if [[ -f $storage_full_path ]]; then
+        cp -p -v $storage_full_path $source_full_path
+    else
+        echo "Couldn't find a stored file with that name. Sorry." && exit 1
+    fi
+done
+

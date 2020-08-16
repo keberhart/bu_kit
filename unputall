@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+#   A tool to un-backup a list of files on a host. Preshared keys must be
+#   enabled for this to work.
+#
+#   FCDAS - Kyle Eberhart - 14MAY20
+#
+#-----------------------------------------------------------------------------
+if [ $# -eq 0 ]; then
+    echo ""
+    echo "  Read the manifest, un-backup the oginals"
+    echo ""
+    echo "      usage: unputall fbfe# manifest"
+    echo ""
+    echo "  Where manifest is a text file listing filenames and destinations."
+    echo "  for example:"
+    echo "  metp02_prepass.prc,/home/gsa/leot/database/procedures/ "
+    echo ""
+    exit
+fi
+
+target_check ()
+{
+    # Read in the ~/.ssh/known_hosts file to verify destinations from
+    target_list=""
+    while IFS=" " read -r value1 remainder; do
+        if [[ "$value1" != *" "* ]]; then
+            target_list=$target_list$value1
+        fi
+    done < "$HOME/.ssh/known_hosts"
+}
+
+run_unput()
+{
+target_check
+
+# first we will validate our inputs a little bit
+fbfe_list="fbfe1fbfe2fbfe3fbfe4fbfe5fbfe6fbfe7fbfe8fbfe9"
+[[ "$fbfe_list" != *"$1"* ]] && echo "Bad input $1" && exit 1
+[[  $(expr length $1) < 5 ]] && echo "Bad input $1" && exit 1
+target_host=$1
+
+# read in the file and hopefully prcess it
+[[ -z $2 ]] && echo "No manifest supplied!" && exit 1
+manifest=$(realpath $2)
+[[ ! -f $manifest ]] && echo "There is no manifest file by that name!" && exit 1
+# so the manifest file exists, loop over it and work
+while IFS= read -u10 -r line
+do
+    # skip empty lines
+    [[ -z "${line// }" ]] && continue
+    # skip comments
+    [[ "$line" == *"#"* ]] && continue
+    # assume its a good line I guess....
+    # split the line and ingest it
+    file=${line%,*}
+    path=${line##*,}
+    [[ ${path: -1} != '/' ]] && path="${path}/"
+    # figure out if we can un-backup it up on the distant end
+    full_path="${path}${file}"
+    output=$(/usr/bin/ssh -q $target_host [[ ! -f $full_path ]] && echo "nope")
+    if [[ ${output} == "nope" ]]; then
+       echo "The file, $full_path, isn't on the target to un-backup."
+    else
+        echo "un-backing up $full_path"
+        ssh_cmd=$(/usr/bin/ssh -q $target_host /home/gsa/bin/unbu $full_path)
+    fi
+done 10< "$manifest"
+}
+
+
+echo ""
+echo ""
+echo "      You are asking to restore files on:"
+echo ""
+echo "                  $1"
+echo ""
+while true; do
+    read -p "       Do you want to continue? " yn
+    case $yn in
+        [Yy]* ) echo ""; run_unput $1 $2; break;;
+        [Nn]* ) exit;;
+        * ) echo "      Please answer yes or no:";;
+    esac
+done
+
+
